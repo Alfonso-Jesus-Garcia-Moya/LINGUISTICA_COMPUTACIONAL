@@ -1,0 +1,318 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Script de Análisis de Perfil de Autor
+Adaptado para ejecutar todas las técnicas con un conjunto de comentarios personalizados.
+"""
+
+# =============================================================================
+# PASO 0: INSTALAR LIBRERÍAS (si no lo has hecho)
+# =============================================================================
+# pip install transformers torch pysentimiento scikit-learn gensim nltk networkx matplotlib
+
+# =============================================================================
+# PASO 1: IMPORTAR TODO LO NECESARIO
+# =============================================================================
+import itertools
+import networkx as nx
+import matplotlib.pyplot as plt
+import gensim
+from gensim import corpora
+import nltk
+from nltk.tokenize import word_tokenize
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from pysentimiento import create_analyzer
+from transformers import pipeline
+
+# Descargas necesarias para NLTK (solo se ejecutan la primera vez)
+try:
+    nltk.data.find('tokenizers/punkt')
+except nltk.downloader.DownloadError:
+    nltk.download('punkt')
+
+# =============================================================================
+# PASO 2: TUS DATOS - 10 COMENTARIOS REALES DE TU PERFIL
+# =============================================================================
+mis_comentarios = [
+    "¡Qué gran explicación! Por fin entendí la diferencia entre deep learning y machine learning.",
+    "El audio del micrófono se escucha un poco bajo en este video, pero el contenido es oro.",
+    "¿Podrías hacer un tutorial sobre cómo usar la API de OpenAI? Sería genial.",
+    "Muchas gracias por compartir tu conocimiento, me ha servido para un proyecto de la universidad.",
+    "No estoy de acuerdo con el punto sobre las redes neuronales recurrentes, hay enfoques más modernos.",
+    "Excelente aporte. Directo y al punto.",
+    "Me suscribo. Tienes una forma muy clara de enseñar temas complejos.",
+    "El enlace al repositorio de GitHub está roto, ¿podrías arreglarlo?",
+    "¡Brutal! Ojalá hubiera encontrado este canal cuando empecé a estudiar.",
+    "Un tema aceptable, aunque esperaba un análisis más profundo."
+]
+
+print("🚀 INICIANDO ANÁLISIS DE PERFIL CON 10 COMENTARIOS 🚀")
+
+# =============================================================================
+# SECCIÓN 1: ANÁLISIS DE SENTIMIENTOS
+# =============================================================================
+print("\n\n" + "="*20 + " 1. ANÁLISIS DE SENTIMIENTOS " + "="*20)
+sentiment_analyzer = pipeline("sentiment-analysis", model="pysentimiento/robertuito-sentiment-analysis")
+for c in mis_comentarios:
+    resultado = sentiment_analyzer(c)
+    print(f"'{c}' -> {resultado}")
+
+# =============================================================================
+# SECCIÓN 2: DETECCIÓN DE EMOCIONES
+# =============================================================================
+print("\n\n" + "="*20 + " 2. DETECCIÓN DE EMOCIONES " + "="*20)
+emotion_analyzer = create_analyzer(task="emotion", lang="es")
+for c in mis_comentarios:
+    resultado = emotion_analyzer.predict(c)
+    print(f"'{c}' -> Emoción: {resultado.output} | Probabilidades: {resultado.probas}")
+
+# =============================================================================
+# SECCIÓN 3: CLASIFICACIÓN DE SPAM/TROLLS
+# =============================================================================
+print("\n\n" + "="*20 + " 3. CLASIFICACIÓN DE SPAM " + "="*20)
+# Entrenamos un modelo con TUS comentarios, asumiendo que todos son "normales".
+labels = ["normal"] * len(mis_comentarios)
+vectorizer_spam = CountVectorizer()
+X_train = vectorizer_spam.fit_transform(mis_comentarios)
+clf = MultinomialNB()
+clf.fit(X_train, labels)
+
+# Probamos con nuevos comentarios de ejemplo para ver cómo los clasifica.
+nuevos_ejemplos = ["Sígueme para ganar premios", "Muy buen video, felicidades"]
+X_new = vectorizer_spam.transform(nuevos_ejemplos)
+predicciones = clf.predict(X_new)
+print("Clasificación de nuevos comentarios de prueba:")
+for comentario, prediccion in zip(nuevos_ejemplos, predicciones):
+    print(f"'{comentario}' -> {prediccion}")
+
+# =============================================================================
+# SECCIÓN 4: ANÁLISIS DE TEMAS (LDA)
+# =============================================================================
+print("\n\n" + "="*20 + " 4. ANÁLISIS DE TEMAS (LDA) " + "="*20)
+# Tokenización (convertir comentarios en listas de palabras)
+texts = [word_tokenize(doc.lower()) for doc in mis_comentarios]
+dictionary = corpora.Dictionary(texts)
+corpus = [dictionary.doc2bow(text) for text in texts]
+
+# Modelo LDA con 2 temas
+lda_model = gensim.models.LdaModel(corpus, num_topics=2, id2word=dictionary, passes=15)
+print("Temas detectados en tus comentarios:")
+for idx, topic in lda_model.print_topics():
+    print(f"Tema {idx}: {topic}")
+
+# =============================================================================
+# SECCIÓN 5: ANÁLISIS DE CO-OCURRENCIAS
+# =============================================================================
+print("\n\n" + "="*20 + " 5. RED DE CO-OCURRENCIAS " + "="*20)
+# Usamos los 'texts' de la sección anterior que ya están tokenizados
+edges = []
+for toks in texts:
+    # Filtramos palabras muy cortas para una mejor visualización
+    toks_filtrados = [tok for tok in toks if len(tok) > 2]
+    if len(toks_filtrados) > 1:
+        edges += list(itertools.combinations(toks_filtrados, 2))
+
+G = nx.Graph()
+G.add_edges_from(edges)
+
+plt.figure(figsize=(8, 6))
+nx.draw(G, with_labels=True, node_size=2000, node_color="#a7c7e7", font_size=10, width=1.5)
+plt.title("Red de Co-ocurrencias de Palabras en tus Comentarios")
+print("Mostrando gráfico de la red de co-ocurrencias...")
+plt.show()
+
+# =============================================================================
+# SECCIÓN 6: RESUMEN AUTOMÁTICO
+# =============================================================================
+print("\n\n" + "="*20 + " 6. RESUMEN AUTOMÁTICO " + "="*20)
+# Unimos todos los comentarios en un solo texto
+texto_largo = " ".join(mis_comentarios)
+summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+resumen = summarizer(texto_largo, max_length=60, min_length=20, do_sample=False)
+print("Resumen generado a partir de todos tus comentarios:")
+print(resumen[0]["summary_text"])
+
+# =============================================================================
+# SECCIÓN 7: ANÁLISIS COMPARATIVO (TF-IDF)
+# =============================================================================
+print("\n\n" + "="*20 + " 7. ANÁLISIS COMPARATIVO (EJEMPLO) " + "="*20)
+# NOTA: Esta sección se mantiene con los perfiles de ejemplo para demostrar
+# la comparación entre dos temas distintos (programación vs. ciberseguridad),
+# como en el script original.
+perfil_A = [
+    "Curso de Python aplicado a ciencia de datos",
+    "Introducción a machine learning con ejemplos prácticos",
+    "Estadística aplicada para análisis de datos"
+]
+perfil_B = [
+    "Taller de ciberseguridad en redes sociales",
+    "Cómo proteger datos personales en internet",
+    "Privacidad y seguridad digital para empresas"
+]
+stopwords_es = ["de", "a", "en", "para", "con", "por", "como", "los", "las", "un", "una", "y", "el", "la", "lo", "es", "al", "del", "se"]
+corpus_ejemplo = perfil_A + perfil_B
+vectorizer_tfidf = TfidfVectorizer(stop_words=stopwords_es)
+X_tfidf = vectorizer_tfidf.fit_transform(corpus_ejemplo)
+terminos = vectorizer_tfidf.get_feature_names_out()
+puntajes_A = X_tfidf.toarray()[:len(perfil_A)].sum(axis=0)
+puntajes_B = X_tfidf.toarray()[len(perfil_A):].sum(axis=0)
+ranking_A = sorted(zip(terminos, puntajes_A), key=lambda x: x[1], reverse=True)[:5]
+ranking_B = sorted(zip(terminos, puntajes_B), key=lambda x: x[1], reverse=True)[:5]
+
+print("🔹 Palabras clave del Perfil de Ejemplo A (programación/datos):")
+for palabra, peso in ranking_A:
+    print(f" - {palabra}: {peso:.3f}")
+
+print("\n🔹 Palabras clave del Perfil de Ejemplo B (ciberseguridad):")
+for palabra, peso in ranking_B:
+    print(f" - {palabra}: {peso:.3f}")
+
+ 🚀 INICIANDO ANÁLISIS DE PERFIL CON 10 COMENTARIOS 🚀
+
+
+==================== 1. ANÁLISIS DE SENTIMIENTOS ====================
+/usr/local/lib/python3.12/dist-packages/huggingface_hub/utils/_auth.py:94: UserWarning: 
+The secret `HF_TOKEN` does not exist in your Colab secrets.
+To authenticate with the Hugging Face Hub, create a token in your settings tab (https://huggingface.co/settings/tokens), set it as secret in your Google Colab and restart your session.
+You will be able to reuse this secret in all of your notebooks.
+Please note that authentication is recommended but still optional to access public models or datasets.
+  warnings.warn(
+config.json: 100% 925/925 [00:00<00:00, 14.3kB/s]model.safetensors: 100% 435M/435M [00:09<00:00, 73.2MB/s]tokenizer_config.json: 100% 384/384 [00:00<00:00, 36.0kB/s]tokenizer.json:  1.31M/? [00:00<00:00, 21.6MB/s]special_tokens_map.json: 100% 167/167 [00:00<00:00, 14.8kB/s]'¡Qué gran explicación! Por fin entendí la diferencia entre deep learning y machine learning.' -> [{'label': 'POS', 'score': 0.9449241161346436}]
+'El audio del micrófono se escucha un poco bajo en este video, pero el contenido es oro.' -> [{'label': 'POS', 'score': 0.7055642008781433}]
+'¿Podrías hacer un tutorial sobre cómo usar la API de OpenAI? Sería genial.' -> [{'label': 'POS', 'score': 0.5250221490859985}]
+'Muchas gracias por compartir tu conocimiento, me ha servido para un proyecto de la universidad.' -> [{'label': 'POS', 'score': 0.9762604832649231}]
+'No estoy de acuerdo con el punto sobre las redes neuronales recurrentes, hay enfoques más modernos.' -> [{'label': 'NEG', 'score': 0.5538628101348877}]
+'Excelente aporte. Directo y al punto.' -> [{'label': 'POS', 'score': 0.8924758434295654}]
+'Me suscribo. Tienes una forma muy clara de enseñar temas complejos.' -> [{'label': 'POS', 'score': 0.9541459679603577}]
+'El enlace al repositorio de GitHub está roto, ¿podrías arreglarlo?' -> [{'label': 'NEG', 'score': 0.8420205116271973}]
+'¡Brutal! Ojalá hubiera encontrado este canal cuando empecé a estudiar.' -> [{'label': 'POS', 'score': 0.6448543667793274}]
+'Un tema aceptable, aunque esperaba un análisis más profundo.' -> [{'label': 'POS', 'score': 0.7790088057518005}]
+
+
+==================== 2. DETECCIÓN DE EMOCIONES ====================
+config.json:  1.08k/? [00:00<00:00, 82.1kB/s]pytorch_model.bin: 100% 435M/435M [00:21<00:00, 21.4MB/s]model.safetensors: 100% 435M/435M [00:11<00:00, 51.4MB/s]tokenizer_config.json: 100% 384/384 [00:00<00:00, 39.4kB/s]tokenizer.json:  1.31M/? [00:00<00:00, 43.7MB/s]special_tokens_map.json: 100% 167/167 [00:00<00:00, 3.86kB/s]'¡Qué gran explicación! Por fin entendí la diferencia entre deep learning y machine learning.' -> Emoción: joy | Probabilidades: {'others': 0.024372974410653114, 'joy': 0.9571995735168457, 'sadness': 0.0004021567583549768, 'anger': 0.0005388999124988914, 'surprise': 0.01599062979221344, 'disgust': 0.0006028273492120206, 'fear': 0.0008930427138693631}
+'El audio del micrófono se escucha un poco bajo en este video, pero el contenido es oro.' -> Emoción: others | Probabilidades: {'others': 0.9835996627807617, 'joy': 0.005949595011770725, 'sadness': 0.006486314348876476, 'anger': 0.0013293976662680507, 'surprise': 0.001304956036619842, 'disgust': 0.0005961194983683527, 'fear': 0.0007340392330661416}
+'¿Podrías hacer un tutorial sobre cómo usar la API de OpenAI? Sería genial.' -> Emoción: others | Probabilidades: {'others': 0.9869216680526733, 'joy': 0.006270626559853554, 'sadness': 0.0009244817774742842, 'anger': 0.001220442820340395, 'surprise': 0.002280590822920203, 'disgust': 0.000832865247502923, 'fear': 0.001549473381601274}
+'Muchas gracias por compartir tu conocimiento, me ha servido para un proyecto de la universidad.' -> Emoción: joy | Probabilidades: {'others': 0.031652528792619705, 'joy': 0.9639180898666382, 'sadness': 0.0007932732114568353, 'anger': 0.00045598464203067124, 'surprise': 0.00157815997954458, 'disgust': 0.0006527929799631238, 'fear': 0.0009491258533671498}
+'No estoy de acuerdo con el punto sobre las redes neuronales recurrentes, hay enfoques más modernos.' -> Emoción: others | Probabilidades: {'others': 0.9927147030830383, 'joy': 0.0007082129013724625, 'sadness': 0.001962830778211355, 'anger': 0.0015887236222624779, 'surprise': 0.0015087195206433535, 'disgust': 0.000598306767642498, 'fear': 0.0009184997179545462}
+'Excelente aporte. Directo y al punto.' -> Emoción: others | Probabilidades: {'others': 0.8276273608207703, 'joy': 0.1611049920320511, 'sadness': 0.0010381648316979408, 'anger': 0.0017381197540089488, 'surprise': 0.005897583905607462, 'disgust': 0.0012156954035162926, 'fear': 0.001378053450025618}
+'Me suscribo. Tienes una forma muy clara de enseñar temas complejos.' -> Emoción: others | Probabilidades: {'others': 0.9921185970306396, 'joy': 0.0043501113541424274, 'sadness': 0.0006839486886747181, 'anger': 0.0008934501092880964, 'surprise': 0.0009104386554099619, 'disgust': 0.0003908947983291, 'fear': 0.000652636750601232}
+'El enlace al repositorio de GitHub está roto, ¿podrías arreglarlo?' -> Emoción: others | Probabilidades: {'others': 0.9739871025085449, 'joy': 0.0014308675890788436, 'sadness': 0.008112143725156784, 'anger': 0.007245598826557398, 'surprise': 0.003628983860835433, 'disgust': 0.002374504692852497, 'fear': 0.003220692975446582}
+'¡Brutal! Ojalá hubiera encontrado este canal cuando empecé a estudiar.' -> Emoción: joy | Probabilidades: {'others': 0.0017208263743668795, 'joy': 0.9857026934623718, 'sadness': 0.0007407992379739881, 'anger': 0.000304056447930634, 'surprise': 0.009677544236183167, 'disgust': 0.0008863966213539243, 'fear': 0.0009676330373622477}
+'Un tema aceptable, aunque esperaba un análisis más profundo.' -> Emoción: others | Probabilidades: {'others': 0.9921945333480835, 'joy': 0.0011533473152667284, 'sadness': 0.001347115496173501, 'anger': 0.0006108146044425666, 'surprise': 0.003795874770730734, 'disgust': 0.0003767547314055264, 'fear': 0.0005215939600020647}
+
+
+==================== 3. CLASIFICACIÓN DE SPAM ====================
+Clasificación de nuevos comentarios de prueba:
+'Sígueme para ganar premios' -> normal
+'Muy buen video, felicidades' -> normal
+
+
+==================== 4. ANÁLISIS DE TEMAS (LDA) ====================
+Temas detectados en tus comentarios:
+Tema 0: 0.053*"." + 0.034*"un" + 0.024*"de" + 0.024*"," + 0.024*"sobre" + 0.024*"más" + 0.024*"punto" + 0.015*"¿podrías" + 0.015*"?" + 0.015*"al"
+Tema 1: 0.046*"." + 0.025*"el" + 0.025*"," + 0.025*"de" + 0.018*"la" + 0.018*"este" + 0.018*"learning" + 0.018*"por" + 0.018*"me" + 0.018*"!"
+
+
+==================== 5. RED DE CO-OCURRENCIAS ====================
+Mostrando gráfico de la red de co-ocurrencias...
+
+
+==================== 6. RESUMEN AUTOMÁTICO ====================
+config.json:  1.58k/? [00:00<00:00, 110kB/s]model.safetensors: 100% 1.63G/1.63G [00:31<00:00, 70.8MB/s]generation_config.json: 100% 363/363 [00:00<00:00, 20.1kB/s]vocab.json:  899k/? [00:00<00:00, 18.3MB/s]merges.txt:  456k/? [00:00<00:00, 15.0MB/s]tokenizer.json:  1.36M/? [00:00<00:00, 32.9MB/s]Resumen generado a partir de todos tus comentarios:
+El audio del micrófono se escucha un poco bajo en this video, pero el contenido es oro. Muchas gracias por compartir tu conocimiento, me ha servido para un proyecto de
+
+
+==================== 7. ANÁLISIS COMPARATIVO (EJEMPLO) ====================
+🔹 Palabras clave del Perfil de Ejemplo A (programación/datos):
+ - datos: 0.698
+ - análisis: 0.536
+ - aplicada: 0.536
+ - estadística: 0.536
+ - aplicado: 0.472
+
+🔹 Palabras clave del Perfil de Ejemplo B (ciberseguridad):
+ - ciberseguridad: 0.500
+ - digital: 0.500
+ - empresas: 0.500
+ - privacidad: 0.500
+ - redes: 0.500
+
+# =============================================================================
+# SECCIÓN 5: ANÁLISIS DE CO-OCURRENCIAS (VERSIÓN MEJORADA)
+# =============================================================================
+print("\n\n" + "="*20 + " 5. RED DE CO-OCURRENCIAS (MEJORADA) " + "="*20)
+from collections import Counter
+
+# --- MEJORA 1: Lista de "Stop Words" en español ---
+# Palabras comunes que no aportan significado y que vamos a excluir.
+stopwords_es = set([
+    'de', 'la', 'que', 'el', 'en', 'y', 'a', 'los', 'del', 'se', 'las', 'por', 'un',
+    'para', 'con', 'no', 'una', 'su', 'al', 'lo', 'como', 'más', 'pero', 'sus',
+    'le', 'ya', 'o', 'este', 'ha', 'me', 'si', 'sin', 'sobre', 'yo', 'también',
+    'ser', 'estar', 'haber', 'tener', 'hacer', 'poder', 'decir', 'ir', 'ver',
+    'dar', 'saber', 'querer', 'llegar', 'pasar', 'deber', 'poner', 'parecer',
+    'quedar', 'creer', 'hablar', 'llevar', 'dejar', 'seguir', 'encontrar', 'llamar',
+    'venir', 'pensar', 'salir', 'volver', 'tomar', 'conocer', 'vivir', 'sentir',
+    'tratar', 'mirar', 'contar', 'empezar', 'esperar', 'buscar', 'entrar',
+    'trabajar', 'escribir', 'perder', 'producir', 'ocurrir', 'entender', 'pedir',
+    'recibir', 'recordar', 'terminar', 'permitir', 'aparecer', 'conseguir',
+    'comenzar', 'servir', 'sacar', 'necesitar', 'mantener', 'resultar', 'leer',
+    'caer', 'cambiar', 'presentar', 'crear', 'abrir', 'considerar', 'oír',
+    'acabar', 'convertir', 'ganar', 'formar', 'traer', 'partir', 'morir', 'aceptar',
+    'realizar', 'suponer', 'comprender', 'lograr', 'explicar', 'preguntar',
+    'tocar', 'reconocer', 'estudiar', 'alcanzar', 'nacer', 'dirigir', 'correr',
+    'utilizar', 'pagar', 'ayudar', 'gustar', 'jugar', 'escuchar', 'levantar', 'usar'
+])
+
+# Usamos los 'texts' de la sección anterior que ya están tokenizados
+edges = []
+for toks in texts:
+    # --- MEJORA 2: Filtrado más robusto ---
+    # Excluimos stop words, puntuación y palabras muy cortas.
+    toks_filtrados = [
+        tok for tok in toks
+        if tok.isalpha() and len(tok) > 2 and tok not in stopwords_es
+    ]
+    if len(toks_filtrados) > 1:
+        edges.extend(list(itertools.combinations(toks_filtrados, 2)))
+
+# --- MEJORA 3: Ponderar las aristas (líneas) ---
+# Contamos cuántas veces aparece cada par para hacer más gruesas las líneas más frecuentes.
+edge_weights = Counter(edges)
+weighted_edges = [(u, v, {'weight': w}) for (u, v), w in edge_weights.items()]
+
+G = nx.Graph()
+G.add_edges_from(weighted_edges)
+
+# --- MEJORA 4: Tamaño de nodo dinámico ---
+# Los nodos más conectados (más importantes) serán más grandes.
+degrees = nx.degree(G)
+node_sizes = [d[1] * 300 + 300 for d in degrees] # Multiplicador para ajustar el tamaño visual
+
+# --- MEJORA 5: Ajuste del layout para evitar solapamiento ---
+# 'k' controla la distancia entre nodos. Un valor más alto los separa más.
+pos = nx.spring_layout(G, k=0.9, iterations=50, seed=42)
+
+# --- MEJORA 6: Grosor de línea dinámico ---
+edge_widths = [d['weight'] * 0.5 for u, v, d in G.edges(data=True)] # Multiplicador para grosor
+
+plt.figure(figsize=(14, 10)) # Aumentamos el tamaño del lienzo
+nx.draw(G, pos,
+        with_labels=True,
+        node_size=node_sizes,
+        node_color="#a7c7e7",
+        font_size=10,
+        font_weight='bold',
+        width=edge_widths, # Aplicamos el grosor dinámico
+        edge_color="#cccccc")
+
+plt.title("Red de Co-ocurrencias Mejorada (sin Stop Words y con Ponderación)", size=16)
+print("Mostrando gráfico de la red de co-ocurrencias mejorada...")
+plt.show()
+
+ 
+
+==================== 5. RED DE CO-OCURRENCIAS (MEJORADA) ====================
+Mostrando gráfico de la red de co-ocurrencias mejorada...
